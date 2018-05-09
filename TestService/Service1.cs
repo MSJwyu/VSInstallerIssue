@@ -13,8 +13,12 @@ namespace TestService
 {
     public partial class Service1 : ServiceBase
     {
-        bool _running;
-        string _logPath;
+        private string _logPath;
+        private CancellationTokenSource cts = new CancellationTokenSource();
+        private Task mainTask = null;
+        private TimeSpan WaitAfterSuccessInterval = TimeSpan.FromSeconds(5);
+        private TimeSpan WaitAfterErrorInterval = TimeSpan.FromSeconds(5);
+
         public Service1()
         {
             InitializeComponent();
@@ -23,23 +27,38 @@ namespace TestService
 
         protected override void OnStart(string[] args)
         {
-            _running = true;
-            WriteToLog("Started...");
-
-            //while (true)
-            //{
-            //    WriteToLog("Tick");
-            //    Thread.Sleep(5000);
-
-            //    if (!_running)
-            //        break;
-            //}
+            mainTask = new Task(Poll, cts.Token, TaskCreationOptions.LongRunning);
+            mainTask.Start();
         }
 
         protected override void OnStop()
         {
-            _running = false;
-            WriteToLog("Stopped...");
+            cts.Cancel();
+            mainTask.Wait();
+        }
+
+        private void Poll()
+        {
+            CancellationToken cancellation = cts.Token;
+            TimeSpan interval = TimeSpan.Zero;
+            while (!cancellation.WaitHandle.WaitOne(interval))
+            {
+                try
+                {
+                    WriteToLog("Tick");
+                    if (cancellation.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    interval = WaitAfterSuccessInterval;
+                }
+                catch (Exception caught)
+                {
+                    // Log the exception.
+                    WriteToLog($"Error: {caught}");
+                    interval = WaitAfterErrorInterval;
+                }
+            }
         }
 
         private void WriteToLog(string text)
